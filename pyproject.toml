@@ -1,0 +1,13 @@
+[project]
+name = "pp-phase-2"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "amazon-transcribe>=0.6.4",
+    "boto3>=1.42.29",
+    "ffmpeg>=1.4",
+    "google-api-python-client>=2.188.0",
+    "yt-dlp>=2025.12.8",
+]

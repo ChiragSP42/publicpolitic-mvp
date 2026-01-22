@@ -1,0 +1,5 @@
+boto3
+yt-dlp
+ffmpeg
+amazon-transcribe
+google-api-python-client
