@@ -2,12 +2,18 @@ import os
 import time
 import json
 import subprocess
+import asyncio
 import numpy as np
 from faster_whisper import WhisperModel
 
+# AWS Imports
+from amazon_transcribe.client import TranscribeStreamingClient
+from amazon_transcribe.handlers import TranscriptResultStreamHandler
+from amazon_transcribe.model import TranscriptEvent
+
 # --- CONFIGURATION ---
 # 1. Video ID (Hardcoded as requested)
-VIDEO_ID = "QGkzerxK15w"  # Replace with your target live video ID
+VIDEO_ID = "YDvsBbKfLPA"  # Replace with your target live video ID
 
 # 2. Proxy Configuration (For bypassing YouTube IP blocks on AWS)
 #    Leave empty to use your Local IP (Home/Office network).
@@ -19,6 +25,46 @@ MODEL_SIZE = "tiny"
 
 # 4. Output File
 OUTPUT_FILE = "local_transcript.json"
+
+# 5. AWS Region
+REGION = "us-west-2"
+
+class AmazonHandler(TranscriptResultStreamHandler):
+    """Handles the stream of events coming back from AWS."""
+    def __init__(self, transcript_result_stream):
+        super().__init__(transcript_result_stream)
+        self.full_transcript = []
+        self.last_save = time.time()
+
+    async def handle_transcript_event(self, transcript_event: TranscriptEvent):
+        results = transcript_event.transcript.results
+        for result in results:
+            if not result.is_partial:
+                for alt in result.alternatives:
+                    # Check for Speaker Label (if available)
+                    # Note: In streaming, speaker labels sometimes arrive in different events
+                    # or require parsing the 'items' list for high precision.
+                    # For this MVP check, we print the text.
+                    timestamp = time.strftime('%X')
+                    print(f"[{timestamp}] {alt.transcript}")
+                    
+                    self.full_transcript.append({
+                        "time": timestamp,
+                        "text": alt.transcript
+                    })
+
+        # Save heartbeat (Simulate S3 upload)
+        if time.time() - self.last_save > 10:
+            self.save_local()
+
+    def save_local(self):
+        try:
+            with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.full_transcript, f, indent=2)
+            # print(f"   >>> Saved to {OUTPUT_FILE}")
+            self.last_save = time.time()
+        except Exception as e:
+            print(f"Error saving file: {e}")
 
 
 def get_stream_url(video_id, proxy=None):
@@ -47,13 +93,8 @@ def get_stream_url(video_id, proxy=None):
     except subprocess.CalledProcessError as e:
         print("❌ Soldier: yt-dlp failed. Video might be unavailable or IP blocked.")
         return None
-
-def run_soldier():
-    # --- PHASE 1: GET STREAM ---
-    stream_url = get_stream_url(VIDEO_ID, PROXY_URL)
-    if not stream_url:
-        return
-
+    
+def whisper_transcription(stream_url):
     # --- PHASE 2: LOAD AI MODEL ---
     print(f"🤖 Soldier: Loading Whisper Model ({MODEL_SIZE})...")
     # Run on CPU with INT8 quantization (fast, low memory)
@@ -125,6 +166,80 @@ def run_soldier():
         if process.poll() is None:
             process.terminate()
         print(f"📄 Final transcript saved to {OUTPUT_FILE}")
+
+# --- NEW AMAZON FUNCTION ---
+async def amazon_transcription(stream_url):
+    print(f"☁️  Soldier: Connecting to Amazon Transcribe ({REGION})...")
+    
+    # 1. Setup Client
+    client = TranscribeStreamingClient(region=REGION)
+
+    # 2. Start FFMPEG
+    # CRITICAL CHANGE: Amazon needs 's16le' (Signed 16-bit Little Endian), NOT 'f32le'
+    process = subprocess.Popen(
+        ["ffmpeg", "-i", stream_url, "-f", "s16le", "-ac", "1", "-ar", "16000", "-vn", "-"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL
+    )
+
+    # 3. Start AWS Stream
+    try:
+        stream = await client.start_stream_transcription(
+            language_code="en-US",
+            media_sample_rate_hz=16000,
+            media_encoding="pcm",
+            show_speaker_label=True  # Enable Diarization
+        )
+    except Exception as e:
+        print(f"❌ AWS Connection Error: {e}")
+        print("   (Check your AWS credentials, Region, or Account Status)")
+        return
+
+    handler = AmazonHandler(stream.output_stream)
+
+    # 4. Define Audio Sender
+    async def write_audio():
+        print("🎧 Soldier: Streaming audio to AWS...")
+        while True:
+            # Read 8kb chunks (good size for network streaming)
+            chunk = process.stdout.read(1024 * 8)
+            if not chunk:
+                break
+            await stream.input_stream.send_audio_event(audio_chunk=chunk)
+        
+        await stream.input_stream.end_stream()
+        print("--- Audio stream finished ---")
+
+    # 5. Run Loop
+    try:
+        await asyncio.gather(write_audio(), handler.handle_events())
+    except Exception as e:
+        print(f"⚠️ Stream Error: {e}")
+    finally:
+        handler.save_local()
+        if process.poll() is None:
+            process.terminate()
+        print(f"📄 Transcript saved to {OUTPUT_FILE}")
+
+def run_soldier():
+    # --- PHASE 1: GET STREAM ---
+    stream_url = get_stream_url(VIDEO_ID, PROXY_URL)
+    if not stream_url:
+        return
+
+    # Transcription using Whisper. This is used to validate if pipeline works, i.e., URL -> FFMPEG -> STDOUT -> Python
+    # whisper_transcription(stream_url=stream_url)
+
+    # Since Amazon SDK is async, we must run it inside an event loop
+    if os.name == 'nt':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        
+    try:
+        asyncio.run(amazon_transcription(stream_url))
+    except KeyboardInterrupt:
+        print("\n🛑 Stopped by user.")
+
+    
 
 if __name__ == "__main__":
     run_soldier()
