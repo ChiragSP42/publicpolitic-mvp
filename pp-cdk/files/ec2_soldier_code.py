@@ -9,7 +9,6 @@ from faster_whisper import WhisperModel
 # --- CONFIGURATION ---
 REGION = os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
 BUCKET_NAME = os.environ.get('BUCKET_NAME')
-SSM_VIDEO_ID_PARAM = '/meeting/current_video_id'
 
 # PROXY: Use this if you are using a proxy service. 
 # If running on AWS without a proxy, YouTube might block you.
@@ -44,6 +43,7 @@ class TranscriptHandler:
 
     def upload_s3(self):
         """Uploads both JSON and TXT formats to S3."""
+        video_title = ssm.get_parameter(Name='/meeting/current_title')['Parameter']['Value']
         try:
             # 1. Generate JSON Content
             json_body = json.dumps(self.full_transcript, indent=2)
@@ -53,14 +53,14 @@ class TranscriptHandler:
             txt_body = "\n".join(txt_lines)
 
             # 3. Upload JSON
-            key_json = f"transcripts/{self.video_id}/transcript.json"
+            key_json = f"transcripts/{self.video_id}-{video_title}/transcript.json"
             s3.put_object(
                 Bucket=BUCKET_NAME, Key=key_json, 
                 Body=json_body, ContentType='application/json'
             )
 
             # 4. Upload TXT
-            key_txt = f"transcripts/{self.video_id}/transcript.txt"
+            key_txt = f"transcripts/{self.video_id}-{video_title}/transcript.txt"
             s3.put_object(
                 Bucket=BUCKET_NAME, Key=key_txt, 
                 Body=txt_body, ContentType='text/plain'
@@ -91,7 +91,7 @@ def get_stream_url(video_id):
 def run_soldier():
     # 1. Get Video ID from SSM
     try:
-        video_id = ssm.get_parameter(Name=SSM_VIDEO_ID_PARAM)['Parameter']['Value']
+        video_id = ssm.get_parameter(Name='/meeting/current_video_id')['Parameter']['Value']
         print(f"✅ Target Video ID: {video_id}")
     except Exception as e:
         print(f"❌ Error fetching Video ID from SSM: {e}")
@@ -127,7 +127,7 @@ def run_soldier():
     try:
         while True:
             # Read chunk
-            raw_bytes = process.stdout.read(CHUNK_SIZE)
+            raw_bytes = process.stdout.read(CHUNK_SIZE) #type: ignore
             if not raw_bytes or len(raw_bytes) == 0:
                 print("End of stream.")
                 break
