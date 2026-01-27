@@ -6,7 +6,6 @@ from googleapiclient.discovery import build
 API_KEY = os.environ['YOUTUBE_API_KEY']
 CHANNEL_ID = os.environ['CHANNEL_ID']
 INSTANCE_ID = os.environ['INSTANCE_ID']
-SSM_PARAM_NAME = '/meeting/current_video_id'
 
 ec2 = boto3.client('ec2')
 ssm = boto3.client('ssm')
@@ -46,7 +45,7 @@ def lambda_handler(event, context):
     
     # 3. Store Video Info for EC2 to read
     ssm.put_parameter(
-        Name=SSM_PARAM_NAME,
+        Name='/meeting/current_video_id',
         Value=video_id,
         Type='String',
         Overwrite=True

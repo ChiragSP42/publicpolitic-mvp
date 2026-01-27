@@ -40,18 +40,19 @@ class AmazonHandler(TranscriptResultStreamHandler):
         results = transcript_event.transcript.results
         for result in results:
             if not result.is_partial:
-                for alt in result.alternatives:
-                    # Check for Speaker Label (if available)
-                    # Note: In streaming, speaker labels sometimes arrive in different events
-                    # or require parsing the 'items' list for high precision.
-                    # For this MVP check, we print the text.
-                    timestamp = time.strftime('%X')
-                    print(f"[{timestamp}] {alt.transcript}")
-                    
-                    self.full_transcript.append({
-                        "time": timestamp,
-                        "text": alt.transcript
-                    })
+                if result.alternatives:
+                    for alt in result.alternatives:
+                        # Check for Speaker Label (if available)
+                        # Note: In streaming, speaker labels sometimes arrive in different events
+                        # or require parsing the 'items' list for high precision.
+                        # For this MVP check, we print the text.
+                        timestamp = time.strftime('%X')
+                        print(f"[{timestamp}] {alt.transcript}")
+                        
+                        self.full_transcript.append({
+                            "time": timestamp,
+                            "text": alt.transcript
+                        })
 
         # Save heartbeat (Simulate S3 upload)
         if time.time() - self.last_save > 10:
@@ -127,7 +128,7 @@ def whisper_transcription(stream_url):
     try:
         while True:
             # 1. Read Audio Chunk from FFMPEG
-            raw_bytes = process.stdout.read(CHUNK_SIZE)
+            raw_bytes = process.stdout.read(CHUNK_SIZE) #type: ignore
             
             # If stream ends (or FFMPEG crashes), break loop
             if not raw_bytes or len(raw_bytes) == 0:
@@ -202,7 +203,7 @@ async def amazon_transcription(stream_url):
         print("🎧 Soldier: Streaming audio to AWS...")
         while True:
             # Read 8kb chunks (good size for network streaming)
-            chunk = process.stdout.read(1024 * 8)
+            chunk = process.stdout.read(1024 * 8) #type: ignore
             if not chunk:
                 break
             await stream.input_stream.send_audio_event(audio_chunk=chunk)
