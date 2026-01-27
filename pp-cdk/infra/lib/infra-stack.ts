@@ -66,7 +66,7 @@ export class InfraStack extends cdk.Stack {
       instanceName: 'Soldier',
       vpc: vpc,
       role: soldierRole,
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MEDIUM),
       // Use Ubuntu 24.04 (Noble)
       machineImage: ec2.MachineImage.lookup({
         name: 'ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*',
@@ -97,7 +97,7 @@ rm -rf aws awscliv2.zip
 # --- C. Install Python Libraries ---
 echo "Installing Python libraries..."
 # --break-system-packages is needed on newer Ubuntu versions (24.04+)
-pip3 install boto3 amazon-transcribe yt-dlp --break-system-packages
+pip3 install boto3 faster-whisper numpy yt-dlp --break-system-packages
 
 # --- D. Download the Application Code ---
 echo "Downloading soldier script from S3..."
