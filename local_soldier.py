@@ -4,6 +4,7 @@ import json
 import subprocess
 import asyncio
 import numpy as np
+import local_scout
 from faster_whisper import WhisperModel
 
 # AWS Imports
@@ -21,7 +22,7 @@ VIDEO_ID = "YDvsBbKfLPA"  # Replace with your target live video ID
 PROXY_URL = "" 
 
 # 3. Model Size: 'tiny', 'base', 'small', 'medium', 'large-v2'
-MODEL_SIZE = "tiny" 
+MODEL_SIZE = "small" 
 
 # 4. Output File
 OUTPUT_FILE = "local_transcript.json"
@@ -95,7 +96,7 @@ def get_stream_url(video_id, proxy=None):
         print("❌ Soldier: yt-dlp failed. Video might be unavailable or IP blocked.")
         return None
     
-def whisper_transcription(stream_url):
+def whisper_transcription(stream_url, chunk_size: int = 5):
     # --- PHASE 2: LOAD AI MODEL ---
     print(f"🤖 Soldier: Loading Whisper Model ({MODEL_SIZE})...")
     # Run on CPU with INT8 quantization (fast, low memory)
@@ -118,7 +119,7 @@ def whisper_transcription(stream_url):
 
     # --- PHASE 4: TRANSCRIPTION LOOP ---
     # Whisper requires chunks of audio. We buffer 5 seconds.
-    CHUNK_SECONDS = 5
+    CHUNK_SECONDS = chunk_size
     SAMPLE_RATE = 16000
     BYTES_PER_SAMPLE = 4 # float32 = 4 bytes
     CHUNK_SIZE = int(CHUNK_SECONDS * SAMPLE_RATE * BYTES_PER_SAMPLE)
@@ -224,21 +225,24 @@ async def amazon_transcription(stream_url):
 
 def run_soldier():
     # --- PHASE 1: GET STREAM ---
-    stream_url = get_stream_url(VIDEO_ID, PROXY_URL)
+    scout_results = local_scout.lambda_handler({}, None)
+    print(f"Found video:\nTitle: {scout_results['title']}\nVideo ID: {scout_results['video_id']}")
+    # stream_url = get_stream_url(VIDEO_ID, PROXY_URL)
+    stream_url = get_stream_url(scout_results['video_id'], PROXY_URL)
     if not stream_url:
         return
 
     # Transcription using Whisper. This is used to validate if pipeline works, i.e., URL -> FFMPEG -> STDOUT -> Python
-    # whisper_transcription(stream_url=stream_url)
+    whisper_transcription(stream_url=stream_url, chunk_size=10)
 
     # Since Amazon SDK is async, we must run it inside an event loop
-    if os.name == 'nt':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    # if os.name == 'nt':
+    #     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         
-    try:
-        asyncio.run(amazon_transcription(stream_url))
-    except KeyboardInterrupt:
-        print("\n🛑 Stopped by user.")
+    # try:
+    #     asyncio.run(amazon_transcription(stream_url))
+    # except KeyboardInterrupt:
+    #     print("\n🛑 Stopped by user.")
 
     
 

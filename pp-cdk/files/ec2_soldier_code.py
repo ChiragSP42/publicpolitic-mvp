@@ -13,7 +13,7 @@ BUCKET_NAME = os.environ.get('BUCKET_NAME')
 # PROXY: Use this if you are using a proxy service. 
 # If running on AWS without a proxy, YouTube might block you.
 # Format: "http://user:pass@host:port"
-PROXY_URL = os.environ.get('PROXY_URL', "") 
+PROXY_URL = os.environ.get('PROXY_URL', "49.207.153.156") 
 
 # Model Size: 'tiny', 'base', 'small', 'medium', 'large-v2'
 # Warning: 'medium' requires ~5GB RAM. 'small' fits on t3.medium.
@@ -92,7 +92,9 @@ def run_soldier():
     # 1. Get Video ID from SSM
     try:
         video_id = ssm.get_parameter(Name='/meeting/current_video_id')['Parameter']['Value']
+        video_title = ssm.get_parameter(Name='/meeting/current_title')['Parameter']['Value']
         print(f"✅ Target Video ID: {video_id}")
+        print(f"Target Video ID: {video_title}")
     except Exception as e:
         print(f"❌ Error fetching Video ID from SSM: {e}")
         return

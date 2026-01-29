@@ -5,6 +5,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3_assets from 'aws-cdk-lib/aws-s3-assets';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import { Construct } from 'constructs';
