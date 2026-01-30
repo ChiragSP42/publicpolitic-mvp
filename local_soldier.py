@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import boto3
 import subprocess
 import asyncio
 import numpy as np
@@ -13,22 +14,29 @@ from amazon_transcribe.handlers import TranscriptResultStreamHandler
 from amazon_transcribe.model import TranscriptEvent
 
 # --- CONFIGURATION ---
-# 1. Video ID (Hardcoded as requested)
+# Video ID (Hardcoded as requested)
 VIDEO_ID = "YDvsBbKfLPA"  # Replace with your target live video ID
 
-# 2. Proxy Configuration (For bypassing YouTube IP blocks on AWS)
+# Proxy Configuration (For bypassing YouTube IP blocks on AWS)
 #    Leave empty to use your Local IP (Home/Office network).
 #    Format: "http://user:pass@host:port"
 PROXY_URL = "" 
 
-# 3. Model Size: 'tiny', 'base', 'small', 'medium', 'large-v2'
+# Model Size: 'tiny', 'base', 'small', 'medium', 'large-v2'
 MODEL_SIZE = "small" 
 
-# 4. Output File
+# Output File
 OUTPUT_FILE = "local_transcript.json"
 
-# 5. AWS Region
+# AWS Region
 REGION = "us-west-2"
+
+# Boto3 clients and resources
+s3_client = boto3.client('s3', region_name='us-west-2')
+
+# Environment variables
+BUCKET_NAME=os.getenv("BUCKET_NAME", "publicpolitic")
+
 
 class AmazonHandler(TranscriptResultStreamHandler):
     """Handles the stream of events coming back from AWS."""
@@ -96,7 +104,7 @@ def get_stream_url(video_id, proxy=None):
         print("❌ Soldier: yt-dlp failed. Video might be unavailable or IP blocked.")
         return None
     
-def whisper_transcription(stream_url, chunk_size: int = 5):
+def whisper_transcription(stream_url, video_id: str, chunk_size: int = 5):
     # --- PHASE 2: LOAD AI MODEL ---
     print(f"🤖 Soldier: Loading Whisper Model ({MODEL_SIZE})...")
     # Run on CPU with INT8 quantization (fast, low memory)
@@ -124,7 +132,8 @@ def whisper_transcription(stream_url, chunk_size: int = 5):
     BYTES_PER_SAMPLE = 4 # float32 = 4 bytes
     CHUNK_SIZE = int(CHUNK_SECONDS * SAMPLE_RATE * BYTES_PER_SAMPLE)
 
-    full_transcript = []
+    full_transcript_json = []
+    full_transcript_text = ""
 
     try:
         while True:
@@ -151,15 +160,28 @@ def whisper_transcription(stream_url, chunk_size: int = 5):
                     timestamp = time.strftime('%X')
                     print(f"[{timestamp}] {text}")
                     
-                    full_transcript.append({
+                    full_transcript_json.append({
                         "time": timestamp,
                         "text": text
                     })
 
+                    full_transcript_text = full_transcript_text + "\n" + text
+
             # 5. Save to File (Simulate S3 Upload Heartbeat)
             # In production, you would upload to S3 here every 60 seconds
             with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-                json.dump(full_transcript, f, indent=2)
+                json.dump(full_transcript_json, f, indent=2)
+
+            with open('local_transcript.txt', 'w', encoding='utf-8') as f:
+                f.write(full_transcript_text)
+
+            s3_client.put_object(Bucket=BUCKET_NAME,
+                                 Key=f"transcripts/{video_id}/transcripts.json",
+                                 Body=json.dumps(full_transcript_json))
+            
+            s3_client.put_object(Bucket=BUCKET_NAME,
+                                 Key=f'transcripts/{video_id}/transcripts.txt',
+                                 Body=full_transcript_text)
 
     except KeyboardInterrupt:
         print("\n🛑 Soldier stopped by user.")
@@ -233,7 +255,9 @@ def run_soldier():
         return
 
     # Transcription using Whisper. This is used to validate if pipeline works, i.e., URL -> FFMPEG -> STDOUT -> Python
-    whisper_transcription(stream_url=stream_url, chunk_size=10)
+    whisper_transcription(stream_url=stream_url, 
+                          chunk_size=10, 
+                          video_id=scout_results['video_id'])
 
     # Since Amazon SDK is async, we must run it inside an event loop
     # if os.name == 'nt':
@@ -245,6 +269,5 @@ def run_soldier():
     #     print("\n🛑 Stopped by user.")
 
     
-
 if __name__ == "__main__":
     run_soldier()

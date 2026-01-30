@@ -1,14 +1,18 @@
 import boto3
 import os
+from datetime import datetime
 from googleapiclient.discovery import build
 
 # CONFIG
 API_KEY = os.environ['YOUTUBE_API_KEY']
 CHANNEL_ID = os.environ['CHANNEL_ID']
 INSTANCE_ID = os.environ['INSTANCE_ID']
+TABLE_NAME = os.environ['TABLE_NAME']
 
 ec2 = boto3.client('ec2')
 ssm = boto3.client('ssm')
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table(TABLE_NAME) #type: ignore
 youtube = build('youtube', 'v3', developerKey=API_KEY)
 
 def lambda_handler(event, context):
@@ -34,6 +38,16 @@ def lambda_handler(event, context):
         title = video['snippet']['title']
     
         print(f"Found: {title} ({video_id})")
+        print(f"Creating DB Record for {video_id}")
+        table.put_item(
+            Item={
+                'video_id': video_id,
+                'status': 'ACTIVE',
+                'start_time': datetime.now().isoformat(),
+                'last_checkpoint_index': 0,
+                'summaries': [] # Start empty
+            }
+        )
 
     # 2. Check EC2 State
     status = ec2.describe_instances(InstanceIds=[INSTANCE_ID])
