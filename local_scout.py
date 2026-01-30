@@ -1,6 +1,7 @@
 import boto3
 import os
 import json
+from datetime import datetime
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
 load_dotenv(override=True)
@@ -8,11 +9,23 @@ load_dotenv(override=True)
 # CONFIG
 API_KEY = os.environ['YOUTUBE_API_KEY']
 CHANNEL_ID = os.environ['CHANNEL_ID']
-# INSTANCE_ID = os.environ['INSTANCE_ID']
+TABLE_NAME = os.getenv("TABLE_NAME")
 SSM_PARAM_NAME = '/meeting/current_video_id'
 
-ec2 = boto3.client('ec2')
-ssm = boto3.client('ssm')
+if os.getenv("LOCAL_AWS_ACCESS_KEY") and os.getenv("LOCAL_AWS_SECRET_KEY"):
+    local_aws_access_key = os.getenv("LOCAL_AWS_ACCESS_KEY")
+    local_aws_secret_key = os.getenv("LOCAL_AWS_SECRET_KEY")
+    session = boto3.Session(aws_access_key_id=local_aws_access_key,
+                            aws_secret_access_key=local_aws_secret_key,
+                            region_name='us-west-2')
+    
+    ec2 = session.client("ec2")
+    ssm = session.client("ssm")
+    dynamodb = session.resource("dynamodb")
+    table = dynamodb.Table(TABLE_NAME) #type: ignore
+
+ec2 = boto3.client('ec2', region_name='us-west-2')
+ssm = boto3.client('ssm', region_name='us-west-2')
 youtube = build('youtube', 'v3', developerKey=API_KEY)
 
 def lambda_handler(event, context):
@@ -38,6 +51,16 @@ def lambda_handler(event, context):
         title = video['snippet']['title']
     
         print(f"Found: {title} ({video_id})")
+        print(f"Creating DB Record for {video_id}")
+        table.put_item(
+            Item={
+                'video_id': video_id,
+                'status': 'ACTIVE',
+                'start_time': datetime.now().isoformat(),
+                'last_checkpoint_index': 0,
+                'summary': '' # Start empty
+            }
+        )
 
     # 2. Check EC2 State
     # status = ec2.describe_instances(InstanceIds=[INSTANCE_ID])

@@ -6,6 +6,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3_assets from 'aws-cdk-lib/aws-s3-assets';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import { Construct } from 'constructs';
@@ -24,6 +25,13 @@ export class InfraStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY, // For testing only
       autoDeleteObjects: true,
     });
+
+    // DYNAMODB
+    const table = new dynamodb.TableV2(this, 'MeetingsTable', {
+      tableName: 'CouncilMeetings',
+      partitionKey: {name: 'video_id', type: dynamodb.AttributeType.STRING},
+      removalPolicy: cdk.RemovalPolicy.DESTROY
+    })
 
     // 2. NETWORKING (Simple & Cheap)
     // We create a VPC with ONLY Public subnets. 
@@ -146,40 +154,6 @@ systemctl start council-recorder.service
     // 4. Attach the User Data to the Instance
     soldier.addUserData(userDataScript);
 
-
-    // Add startup commands to User Data
-    // soldier.userData.addCommands(
-    //   // 1. Install System Dependencies (ffmpeg, python, unzip)
-    //   'apt-get update',
-    //   'apt-get install -y python3-pip ffmpeg unzip',
-      
-    //   // 2. Install AWS CLI v2 (The Official Way)
-    //   'curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"',
-    //   'unzip awscliv2.zip',
-    //   './aws/install',
-    //   // Cleanup the installer files to keep things clean
-    //   'rm -rf aws awscliv2.zip',
-
-    //   // 3. Install Python Dependencies
-    //   // --break-system-packages is needed on Ubuntu 24.04+ because Python is managed externally
-    //   'pip3 install boto3 amazon-transcribe yt-dlp --break-system-packages',
-      
-    //   // 4. Download the Script from S3
-    //   // Now 'aws' command is guaranteed to exist
-    //   `aws s3 cp ${scriptAsset.s3ObjectUrl} /home/ubuntu/main.py`,
-      
-    //   // 5. Fix Permissions
-    //   // 'aws s3 cp' runs as root, so we give the file to the 'ubuntu' user
-    //   'chown ubuntu:ubuntu /home/ubuntu/main.py',
-      
-    //   // 6. Set Environment Variables
-    //   `echo "export BUCKET_NAME=${bucket.bucketName}" >> /etc/environment`,
-    //   `echo "export AWS_DEFAULT_REGION=${this.region}" >> /etc/environment`,
-      
-    //   // 7. Run the Script
-    //   'su - ubuntu -c "source /etc/environment && python3 /home/ubuntu/main.py"'
-    // );
-
     // 5. LAMBDA FUNCTION ( The Scout )
     const scout = new lambda.DockerImageFunction(this, 'ScoutFunction', {
       functionName: 'scout-lambda',
@@ -216,5 +190,11 @@ systemctl start council-recorder.service
     // Outputs
     new cdk.CfnOutput(this, 'BucketName', { value: bucket.bucketName });
     new cdk.CfnOutput(this, 'InstanceId', { value: soldier.instanceId });
+
+    // PERMISSIONS
+
+    // table.grantReadWriteData(scout)
+    // table.grantReadWriteData(historian)
+    // table.grantReadWriteData(soldier)
   }
 }
