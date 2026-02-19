@@ -12,7 +12,9 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import { Construct } from 'constructs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
-dotenv.config();
+dotenv.config({
+  path: path.resolve(__dirname, "../../../.env")
+});
 
 export class InfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
