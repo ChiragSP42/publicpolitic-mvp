@@ -121,7 +121,7 @@ def run_soldier():
         video_id = ssm.get_parameter(Name='/meeting/current_video_id')['Parameter']['Value']
         video_title = ssm.get_parameter(Name='/meeting/current_title')['Parameter']['Value']
         print(f"✅ Target Video ID: {video_id}")
-        print(f"Target Video ID: {video_title}")
+        print(f"Target Video title: {video_title}")
     except Exception as e:
         print(f"❌ Error fetching Video ID from SSM: {e}")
         return
@@ -148,7 +148,14 @@ def run_soldier():
     # We read 16kHz mono audio as raw 32-bit floats
     print("🎧 Starting Audio Stream...")
     process = subprocess.Popen(
-        ["ffmpeg", "-i", stream_url, "-f", "f32le", "-ac", "1", "-ar", "16000", "-vn", "-"],
+        ["ffmpeg", 
+         "-http_proxy", proxy_url, # Route FFMPEG through IPRoyal
+         "-i", stream_url, 
+         "-f", "f32le", 
+         "-ac", "1", 
+         "-ar", "16000", 
+         "-vn", 
+         "-"],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL
     )
@@ -174,7 +181,13 @@ def run_soldier():
 
             # Transcribe
             # beam_size=5 is standard for accuracy
-            segments, info = model.transcribe(audio_chunk, beam_size=5)
+            segments, info = model.transcribe(audio_chunk, 
+                                              beam_size=5,
+                                              language='en',
+                                              vad_filter=True,
+                                              vad_parameters=dict(min_silence_duration_ms=500),
+                                              condition_on_previous_text=False # <--- PREVENT LOOPING
+                                              )
 
             for segment in segments:
                 text = segment.text.strip()
