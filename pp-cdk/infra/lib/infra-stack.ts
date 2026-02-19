@@ -5,7 +5,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3_assets from 'aws-cdk-lib/aws-s3-assets';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as logs from 'aws-cdk-lib/aws-logs';
+import * as secrets from 'aws-cdk-lib/aws-secretsmanager';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
@@ -18,7 +18,7 @@ export class InfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // 1. DATA BUCKET
+    //===============DATA BUCKET===============
     // Where transcripts go. Also used to transfer the script to EC2.
     const bucket = new s3.Bucket(this, 'TranscriptBucket', {
       bucketName: 'publicpolitic',
@@ -26,14 +26,25 @@ export class InfraStack extends cdk.Stack {
       autoDeleteObjects: true,
     });
 
-    // DYNAMODB
+    //===============DYNAMODB===============
     const table = new dynamodb.TableV2(this, 'MeetingsTable', {
       tableName: 'CouncilMeetings',
       partitionKey: {name: 'video_id', type: dynamodb.AttributeType.STRING},
       removalPolicy: cdk.RemovalPolicy.DESTROY
     })
 
-    // 2. NETWORKING (Simple & Cheap)
+    //===============SECRETS MANAGER===============
+    // Storing Proxy URL username and password
+    const proxy_secrets = new secrets.Secret(this, 'ProxySecrets', {
+      secretName: 'publicpolitic/proxy_secrets',
+      description: 'The username and password for the Proxy URL',
+      secretObjectValue: {
+        PROXY_USER: cdk.SecretValue.unsafePlainText(process.env.PROXY_USER || ''),
+        PROXY_PASS_BASE: cdk.SecretValue.unsafePlainText(process.env.PROXY_PASS_BASE || '')
+      }
+    })
+
+    //===============NETWORKING (Simple & Cheap)===============
     // We create a VPC with ONLY Public subnets. 
     // This allows the EC2 to talk to YouTube/AWS APIs without an expensive NAT Gateway.
     const vpc = new ec2.Vpc(this, 'SimpleVPC', {
@@ -48,13 +59,13 @@ export class InfraStack extends cdk.Stack {
       ],
     });
 
-    // 3. EC2 ASSET ( The Script )
+    //===============EC2 ASSET ( The Script )===============
     // This takes your local 'main.py' and zips it to S3 so EC2 can download it.
     const scriptAsset = new s3_assets.Asset(this, 'SoldierScriptAsset', {
       path: path.join(__dirname, '../../files/ec2_soldier_code.py'),
     });
 
-    // 4. EC2 INSTANCE ( The Soldier )
+    //===============EC2 INSTANCE ( The Soldier )===============
     const soldierRole = new iam.Role(this, 'SoldierRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
     });
@@ -62,6 +73,7 @@ export class InfraStack extends cdk.Stack {
     // Grant permissions to the Soldier
     bucket.grantReadWrite(soldierRole); // Write transcripts
     scriptAsset.grantRead(soldierRole); // Download its own code
+    proxy_secrets.grantRead(soldierRole); // Read the username and password 
     soldierRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore')); // For debugging via Console
     soldierRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonTranscribeFullAccess'));
     
@@ -154,7 +166,7 @@ systemctl start council-recorder.service
     // 4. Attach the User Data to the Instance
     soldier.addUserData(userDataScript);
 
-    // 5. LAMBDA FUNCTION ( The Scout )
+    //===============LAMBDA FUNCTION ( The Scout )===============
     const scout = new lambda.DockerImageFunction(this, 'ScoutFunction', {
       functionName: 'scout-lambda',
       code: lambda.DockerImageCode.fromImageAsset(
@@ -180,7 +192,7 @@ systemctl start council-recorder.service
       resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/meeting/*`],
     }));
 
-    // 6. SCHEDULER
+    //===============SCHEDULER===============
     // Run every 15 minutes
     new events.Rule(this, 'ScoutSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.minutes(15)),

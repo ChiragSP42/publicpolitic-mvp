@@ -2,6 +2,8 @@ import os
 import time
 import json
 import boto3
+import random
+import string
 import subprocess
 import asyncio
 import numpy as np
@@ -20,7 +22,11 @@ VIDEO_ID = "YDvsBbKfLPA"  # Replace with your target live video ID
 # Proxy Configuration (For bypassing YouTube IP blocks on AWS)
 #    Leave empty to use your Local IP (Home/Office network).
 #    Format: "http://user:pass@host:port"
-PROXY_URL = "" 
+PROXY_USER = "O2wU7ubtlZpdIKuE"
+PROXY_PASS_BASE = "b1CzwaxGJgoajSp3"
+session_id = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+proxy_pass = f"{PROXY_PASS_BASE}_country-us_city-lasvegas_session-{session_id}_lifetime-168h"
+PROXY_URL = f"http://{PROXY_USER}:{proxy_pass}@geo.iproyal.com:12321"
 
 # Model Size: 'tiny', 'base', 'small', 'medium', 'large-v2'
 MODEL_SIZE = "small" 
@@ -151,7 +157,13 @@ def whisper_transcription(stream_url, video_id: str, chunk_size: int = 5):
 
             # 3. Transcribe
             # beam_size=1 is faster; increase to 5 for accuracy
-            segments, info = model.transcribe(audio_chunk, beam_size=1)
+            segments, info = model.transcribe(audio_chunk, 
+                                              beam_size=5,
+                                              language='en',
+                                              vad_filter=True,
+                                              vad_parameters=dict(min_silence_duration_ms=500),
+                                              condition_on_previous_text=False # <--- PREVENT LOOPING
+                                              )
 
             # 4. Print & Accumulate
             for segment in segments:
