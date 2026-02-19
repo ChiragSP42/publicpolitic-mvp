@@ -23,7 +23,7 @@ def lambda_handler(event, context):
         channelId=CHANNEL_ID,
         eventType='live',  # Only live streams
         type='video',
-        # q='Council Meeting',  # Filter by title
+        q='Watch Sky News',  # Filter by title
         maxResults=1
     ).execute()
 

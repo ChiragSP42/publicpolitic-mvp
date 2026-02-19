@@ -1,13 +1,15 @@
 import boto3
 from botocore.config import Config
 import os
+from dotenv import load_dotenv
 import json
 from typing import (
     List,
     Dict
 )
+load_dotenv(override=True)
 
-TABLE_NAME = os.getenv("TABLE_NAME")
+TABLE_NAME = os.getenv("TABLE_NAME", "CouncilMeetings")
 BUCKET_NAME = os.getenv("BUCKET_NAME")
 MODEL_ID = 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 # Config
@@ -31,6 +33,7 @@ def lambda_handler(event, context):
     # Get video ID from SSM Parameter Store
     try:
         video_id = ssm_client.get_parameter(Name='/meeting/current_video_id')['Parameter']['Value']
+        print(f"Getting video ID {video_id} from SSM Parameter Store")
     except:
         print(f"Failed to retrieve video ID from SSM")
         message = {
@@ -40,6 +43,7 @@ def lambda_handler(event, context):
         return return_response(status_code=400, message=message)
 
     # Retrieve record for video ID from DynamoDB
+    print("Retrieve record for video ID from DynamoDB")
     response = table.get_item(Key={'video_id': video_id})
 
     if 'Item' not in response:
@@ -62,19 +66,20 @@ def lambda_handler(event, context):
     
     # If status IN_PROGRESS, initiate summarization process
     elif item.get("status") == 'IN_PROGRESS':
+        print(f"Meeting in progress, extracting transcript from S3 path: {BUCKET_NAME}/transcripts/{video_id}/transcripts.json")
         # Retrieve Raw transcript from S3
         try:
-            response = s3_client.get_object(Bucket=BUCKET_NAME, Key=f'transcripts/{video_id}/transcript.json')
+            response = s3_client.get_object(Bucket=BUCKET_NAME, Key=f'transcripts/{video_id}/transcripts.json')
             transcript = json.loads(response['Body'].read().decode('utf-8'))
-        except:
-            print(f"Failed to extract transcript from S3")
+        except Exception as e:
+            print(f"Failed to extract transcript from S3: {str(e)}")
             message = {
                 "status": "FAILED",
-                "message": f"Failed to extract transcript from S3"
+                "message": f"Failed to extract transcript from S3: {str(e)}"
             }
             return return_response(status_code=400, message=message)
 
-        last_index = item.get('last_checkpoint_index', 0)
+        last_index = int(item.get('last_checkpoint_index', 0))
         if len(transcript) <= last_index:
             print(f"Nothing new")
             message = {
@@ -84,8 +89,10 @@ def lambda_handler(event, context):
             return return_response(status_code=400, message=message)
         else:
             new_chunk = transcript[last_index:]
+            print("Starting summarization function")
             new_summary = summarization(transcript_chunk=new_chunk,
                                         video_id=video_id)
+            print(new_summary)
 
         try:
             table.update_item(
@@ -191,3 +198,6 @@ def return_response(status_code: int, message: dict):
         },
         "body": json.dumps(message)
     }
+
+if __name__ == "__main__":
+    lambda_handler({}, None)

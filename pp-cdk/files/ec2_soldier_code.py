@@ -3,17 +3,14 @@ import time
 import json
 import subprocess
 import boto3
+import string
+import random
 import numpy as np
 from faster_whisper import WhisperModel
 
 # --- CONFIGURATION ---
 REGION = os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
-BUCKET_NAME = os.environ.get('BUCKET_NAME')
-
-# PROXY: Use this if you are using a proxy service. 
-# If running on AWS without a proxy, YouTube might block you.
-# Format: "http://user:pass@host:port"
-PROXY_URL = os.environ.get('PROXY_URL', "49.207.153.156") 
+BUCKET_NAME = os.environ.get('BUCKET_NAME') 
 
 # Model Size: 'tiny', 'base', 'small', 'medium', 'large-v2'
 # Warning: 'medium' requires ~5GB RAM. 'small' fits on t3.medium.
@@ -21,6 +18,9 @@ MODEL_SIZE = "small"
 
 s3 = boto3.client('s3', region_name=REGION)
 ssm = boto3.client('ssm', region_name=REGION)
+secrets_client = boto3.client("secretsmanager", region_name=REGION)
+
+
 
 class TranscriptHandler:
     def __init__(self, video_id):
@@ -71,14 +71,14 @@ class TranscriptHandler:
         except Exception as e:
             print(f"[ERROR] S3 Upload failed: {e}")
 
-def get_stream_url(video_id):
+def get_stream_url(video_id, proxy_url):
     """Get the live stream URL using yt-dlp."""
     print(f"🔗 Extracting stream URL for {video_id}...")
     cmd = ["yt-dlp"]
     
-    if PROXY_URL:
-        print(f"   ℹ️  Using Proxy: {PROXY_URL}")
-        cmd.extend(["--proxy", PROXY_URL])
+    if proxy_url:
+        print(f"   ℹ️  Using Proxy: {proxy_url}")
+        cmd.extend(["--proxy", proxy_url])
     
     cmd.extend(["-g", f"https://www.youtube.com/watch?v={video_id}"])
 
@@ -87,6 +87,33 @@ def get_stream_url(video_id):
     except subprocess.CalledProcessError:
         print("❌ Error: Could not get stream URL (Check IP/Proxy/VideoID)")
         return None
+    
+def get_secret(secret_name: str) -> dict:
+    """
+    Retrieves a JSON secret from AWS Secrets Manager.
+    Returns a dict of all key-value pairs stored in the secret.
+
+    No credentials needed here — boto3 automatically uses the
+    EC2 instance's IAM role (fetched from the instance metadata service).
+    """
+
+    try:
+        response = secrets_client.get_secret_value(
+            SecretId=secret_name  # Can be name OR full ARN
+        )
+    except secrets_client.exceptions.ResourceNotFoundException:
+        print(f"Secret '{secret_name}' not found.")
+        raise
+    except secrets_client.exceptions.AccessDeniedException:
+        print("EC2 role does not have permission to read this secret.")
+        raise
+    except Exception as e:
+        print(f"Unexpected error fetching secret: {e}")
+        raise
+
+    # SecretString contains the raw JSON string — parse it into a dict
+    secret_dict = json.loads(response["SecretString"])
+    return secret_dict
 
 def run_soldier():
     # 1. Get Video ID from SSM
@@ -100,7 +127,15 @@ def run_soldier():
         return
 
     # 2. Get Stream URL
-    stream_url = get_stream_url(video_id)
+    # Retrieve Proxy username and password from AWS Secrets manager
+    secrets = get_secret("publicpolitic/proxy_secrets")
+    proxy_user = secrets.get("PROXY_USER")
+    proxy_pass_base = secrets.get("PROXY_PASS_BASE")
+    session_id = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+    proxy_pass = f"{proxy_pass_base}_country-us_city-lasvegas_session-{session_id}_lifetime-4h"
+    proxy_url = f"http://{proxy_user}:{proxy_pass}@geo.iproyal.com:12321"
+    # Pass constructed Proxy URL to get Stream URL
+    stream_url = get_stream_url(video_id, proxy_url)
     if not stream_url:
         return
 

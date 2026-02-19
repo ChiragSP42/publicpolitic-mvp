@@ -55,7 +55,8 @@ def lambda_handler(event, context):
         table.put_item(
             Item={
                 'video_id': video_id,
-                'status': 'ACTIVE',
+                'title': title,
+                'status': 'IN_PROGRESS',
                 'start_time': datetime.now().isoformat(),
                 'last_checkpoint_index': 0,
                 'summary': '' # Start empty
