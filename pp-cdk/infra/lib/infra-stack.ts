@@ -179,6 +179,7 @@ systemctl start council-recorder.service
         YOUTUBE_API_KEY: process.env.YOUTUBE_API_KEY || '', // Ideally use Secrets Manager
         CHANNEL_ID: process.env.CHANNEL_ID || '',
         INSTANCE_ID: soldier.instanceId,
+        TABLE_NAME: table.tableName
       },
     });
 
@@ -205,8 +206,8 @@ systemctl start council-recorder.service
 
     // PERMISSIONS
 
-    // table.grantReadWriteData(scout)
+    table.grantReadWriteData(scout)
     // table.grantReadWriteData(historian)
-    // table.grantReadWriteData(soldier)
+    table.grantReadWriteData(soldier)
   }
 }

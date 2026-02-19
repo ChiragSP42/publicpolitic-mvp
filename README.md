@@ -14,3 +14,27 @@ Item structure (what a record would look like):
   "summary": ""                      // The summary for the Frontend
 }
 ```
+
+# How to SSH into EC2
+
+First change user to root
+
+```bash
+sudo -i
+```
+
+Then change it to ubuntu user
+
+```bash
+su - ubuntu
+```
+
+# Follow the Logs in Real-Time in EC2
+
+To see all previous logs and then keep the terminal open to see new lines as they happen, combine the flags:
+
+```bash
+journalctl -u council-recorder -f
+```
+
+(Add -n 100 if you want to see the 100 lines leading up to the current moment before it starts "following" the live stream).
