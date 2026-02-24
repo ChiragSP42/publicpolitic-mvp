@@ -9,6 +9,8 @@ import * as secrets from 'aws-cdk-lib/aws-secretsmanager';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
+import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import { Construct } from 'constructs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
@@ -158,15 +160,97 @@ Environment="SSM_VIDEO_ID_PARAM=/meeting/current_video_id"
 WantedBy=multi-user.target
 EOF
 
-# --- F. Enable and Start the Service ---
-echo "Starting service..."
+# --- F. Enable the Service (Do NOT start it yet) ---
+echo "Enabling service to run on future boots..."
 systemctl daemon-reload
 systemctl enable council-recorder.service
-systemctl start council-recorder.service
+
+# --- G. Auto-Shutdown After Deployment ---
+echo "Initial deployment and setup complete."
+echo "Shutting down instance to save costs until the StepFunction wakes it up..."
+shutdown -h now
     `;
 
     // 4. Attach the User Data to the Instance
     soldier.addUserData(userDataScript);
+    table.grantReadWriteData(soldier)
+
+    //===============LAMBDA FUNCTION ( The Historian )===============
+    const historian_lambda = new lambda.DockerImageFunction(this, 'HistorianLambda', {
+      functionName: 'historian-lambda',
+      description: 'Lambda that routinely summarizes transcript of live Youtube meeting',
+      code: lambda.DockerImageCode.fromImageAsset(
+        path.join(__dirname, '../../services/lambdas/historian_lambda'),
+        {
+          platform: aws_ecr_assets.Platform.LINUX_AMD64
+        }
+      ),
+      timeout: cdk.Duration.minutes(15),
+      environment: {
+        TABLE_NAME: table.tableName,
+        BUCKET_NAME: bucket.bucketName
+      }
+    })
+
+    bucket.grantRead(historian_lambda)
+    table.grantReadWriteData(historian_lambda)
+    historian_lambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ["*"]
+    }))
+    historian_lambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ssm:GetParameter'],
+      resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/meeting/*`]
+    }))
+
+    //===============STEP FUNCTION ORCHESTRATOR===============
+
+    // Task 1: Start EC2 instance when meeting starts
+    const task_1_start_ec2 = new tasks.CallAwsService(this, 'StartEC2', {
+      service: 'ec2',
+      action: 'startInstances',
+      parameters: {'InstanceIds': [soldier.instanceId]},
+      iamResources: [`arn:aws:ec2:${this.region}:${this.account}:instance/${soldier.instanceId}`],
+      resultPath: sfn.JsonPath.DISCARD
+    })
+
+    // Task 2: Wait N minutes before summarization
+    const task_2_wait = new sfn.Wait(this, 'Wait', {
+      time: sfn.WaitTime.duration(cdk.Duration.minutes(4))
+    })
+
+    // Task 3: Trigger summarization lambda
+    const task_3_historian = new tasks.LambdaInvoke(this, "InvokeHistorian", {
+      lambdaFunction: historian_lambda,
+      payloadResponseOnly: true
+    })
+
+    // Task 4: Stop EC2 instance once meeting is done
+    const task_4_stop_ec2 = new tasks.CallAwsService(this, 'StopEC2', {
+      service: 'ec2',
+      action: 'stopInstances',
+      parameters: {'InstanceIds': [soldier.instanceId]},
+      iamResources: [`arn:aws:ec2:${this.region}:${this.account}:instance/${soldier.instanceId}`],
+    })
+
+    // Logic: Meeting status
+    const check_meeting_active = new sfn.Choice(this, 'IsMeetingActive')
+
+    // Chain workflow together
+    task_1_start_ec2.next(task_2_wait)
+    task_2_wait.next(task_3_historian)
+    task_3_historian.next(check_meeting_active)
+
+    // If meeting active, loop over, else terminate
+    check_meeting_active.when(sfn.Condition.booleanEquals('$.meeting_active', true), task_2_wait)
+    check_meeting_active.otherwise(task_4_stop_ec2)
+
+    // Create State Machine
+    const state_machine = new sfn.StateMachine(this, 'MeetingOrchestrator', {
+      stateMachineName: 'meeting-orchestrator',
+      definitionBody: sfn.DefinitionBody.fromChainable(task_1_start_ec2),
+      timeout: cdk.Duration.hours(1)
+    })
 
     //===============LAMBDA FUNCTION ( The Scout )===============
     const scout = new lambda.DockerImageFunction(this, 'ScoutFunction', {
@@ -180,20 +264,18 @@ systemctl start council-recorder.service
       environment: {
         YOUTUBE_API_KEY: process.env.YOUTUBE_API_KEY || '', // Ideally use Secrets Manager
         CHANNEL_ID: process.env.CHANNEL_ID || '',
-        INSTANCE_ID: soldier.instanceId,
+        STATE_MACHINE_ARN: state_machine.stateMachineArn,
         TABLE_NAME: table.tableName
       },
     });
 
     // Grant Permissions to Lambda
     scout.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['ec2:DescribeInstances', 'ec2:StartInstances'],
-      resources: ['*'], // Can be scoped down to soldier.instanceArn
-    }));
-    scout.addToRolePolicy(new iam.PolicyStatement({
       actions: ['ssm:PutParameter'],
       resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/meeting/*`],
     }));
+    table.grantReadWriteData(scout)
+    state_machine.grantStartExecution(scout)
 
     //===============SCHEDULER===============
     // Run every 15 minutes
@@ -205,11 +287,8 @@ systemctl start council-recorder.service
     // Outputs
     new cdk.CfnOutput(this, 'BucketName', { value: bucket.bucketName });
     new cdk.CfnOutput(this, 'InstanceId', { value: soldier.instanceId });
-
-    // PERMISSIONS
-
-    table.grantReadWriteData(scout)
-    // table.grantReadWriteData(historian)
-    table.grantReadWriteData(soldier)
+    new cdk.CfnOutput(this, 'ProxyUser', {value: process.env.PROXY_USER || ""})
+    new cdk.CfnOutput(this, 'ProxyPassBase', {value: process.env.PROXY_PASS_BASE || ""})
+    
   }
 }
