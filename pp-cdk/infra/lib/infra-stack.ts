@@ -269,6 +269,21 @@ shutdown -h now
       },
     });
 
+    //===============LAMBDA FUNCTION ( The Chatbot )===============
+    const chatbot_lambda = new lambda.DockerImageFunction(this, 'ChatbotFunction', {
+      functionName: 'chatbot-lambda',
+      code: lambda.DockerImageCode.fromImageAsset(
+        path.join(__dirname, '../../services/lambdas/chatbot_lambda'),
+      {
+        platform: aws_ecr_assets.Platform.LINUX_AMD64
+      }),
+      timeout: cdk.Duration.minutes(15),
+      environment: {
+        BUCKET_NAME: bucket.bucketName,
+        KNOWLEDGE_BASE_ID: process.env.KNOWLEDGE_BASE_ID || ""
+      },
+    });
+
     // Grant Permissions to Lambda
     scout.addToRolePolicy(new iam.PolicyStatement({
       actions: ['ssm:PutParameter'],
