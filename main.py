@@ -1,28 +1,15 @@
-from googleapiclient.discovery import build
+import boto3
+import os
+import json
 
-YOUTUBE_API_KEY="AIzaSyD1gsaFqftY3bNqx3vel1jrmy10UDkcoWY"
-# CHANNEL_ID="UCCs9Fy2QlMXah1JPxRs9Xdw" # LasVegasTV
-CHANNEL_ID="UCoMdktPbSTixAyNGwb-UYkQ" # Sky news
+AWS_ACCESS_KEY = os.getenv("LOCAL_AWS_ACCESS_KEY")
+AWS_SECRET_KEY = os.getenv("LOCAL_AWS_SECRET_KEY")
 
-youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
+session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
+                        aws_secret_access_key=AWS_SECRET_KEY,
+                        region_name='us-west-2')
 
-search_response = youtube.search().list(
-    part='id,snippet',
-    channelId=CHANNEL_ID,
-    eventType='live',  # Only live streams
-    type='video',
-    # q='Meeting',  # Filter by title
-    maxResults=5
-).execute()
+bedrock_client = session.client("bedrock")
 
-items = search_response.get('items', [])
-
-if not items:
-    print("No live council meeting found.")
-    # print(f"{'status': 'no_meeting'}")
-else:
-    video = items[0]
-    video_id = video['id']['videoId']
-    title = video['snippet']['title']
-
-    print(f"Found: {title} ({video_id})")
+# print(json.dumps(bedrock_client.list_inference_profiles(), indent=2))
+print(bedrock_client.list_inference_profiles())

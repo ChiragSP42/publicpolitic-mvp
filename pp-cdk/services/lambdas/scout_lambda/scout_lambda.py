@@ -1,7 +1,7 @@
 import boto3
 import os
 import json
-from datetime import datetime
+from datetime import date
 from googleapiclient.discovery import build
 
 # --- CONFIG ---
@@ -74,7 +74,7 @@ def lambda_handler(event, context):
         Item={
             'video_id': video_id,
             'status': 'ACTIVE',
-            'start_time': datetime.now().isoformat(),
+            'start_time': date.today(),
             'last_checkpoint_index': 0,
             'summary': ""
         }
