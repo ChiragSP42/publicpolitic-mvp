@@ -74,7 +74,7 @@ def lambda_handler(event, context):
         Item={
             'video_id': video_id,
             'status': 'ACTIVE',
-            'start_time': date.today(),
+            'start_time': str(date.today()),
             'last_checkpoint_index': 0,
             'summary': ""
         }
