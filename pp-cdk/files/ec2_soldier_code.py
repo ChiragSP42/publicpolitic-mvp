@@ -48,13 +48,13 @@ class TranscriptHandler:
             txt_lines = [f"[{entry['timestamp']}] {entry['text']}" for entry in self.full_transcript]
             txt_body = "\n".join(txt_lines)
 
-            key_json = f"transcripts/app-data/{date.today()}/{self.video_id}-{video_title}/transcript.json"
+            key_json = f"transcripts/app-data/{date.today()}/{self.video_id}/transcript.json"
             s3.put_object(
                 Bucket=BUCKET_NAME, Key=key_json, 
                 Body=json_body, ContentType='application/json'
             )
 
-            key_txt = f"transcripts/knowledge-base/{date.today()}/{self.video_id}-{video_title}/transcript.txt"
+            key_txt = f"transcripts/knowledge-base/{date.today()}/{self.video_id}/transcript.txt"
             s3.put_object(
                 Bucket=BUCKET_NAME, Key=key_txt, 
                 Body=txt_body, ContentType='text/plain'
@@ -101,13 +101,13 @@ def run_soldier():
         if video_id and video_title:
             ssm.put_parameter(
                 Name='/meeting/current_video_id',
-                Value="",
+                Value="0",
                 Type='String',
                 Overwrite=True
             )
             ssm.put_parameter(
                 Name='/meeting/current_title',
-                Value="",
+                Value="0",
                 Type='String',
                 Overwrite=True
             )
@@ -155,14 +155,14 @@ def run_soldier():
         # Date format: YYYY-MM-DD
         metadata_attributes = {
             "metadataAttributes": {
-            "date": date.today()
+            "date": str(date.today())
         }
         }
-        key_json = f"transcripts/{date.today()}/{video_id}-{video_title}/transcript.json.metadata.json"
+        key_json = f"transcripts/{date.today()}/{video_id}/transcript.json.metadata.json"
         s3.put_object(
             Bucket=BUCKET_NAME,
             Key=key_json, 
-            Body=metadata_attributes,
+            Body=json.dumps(metadata_attributes),
             ContentType='application/json'
         )
 

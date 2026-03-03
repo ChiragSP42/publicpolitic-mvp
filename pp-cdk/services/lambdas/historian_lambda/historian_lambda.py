@@ -1,6 +1,7 @@
 import boto3
 import os
 import json
+from datetime import date
 from typing import List, Dict
 
 # --- CONFIG ---
@@ -8,7 +9,7 @@ TABLE_NAME = os.environ.get("TABLE_NAME", "CouncilMeetings")
 BUCKET_NAME = os.environ.get("BUCKET_NAME")
 
 # Using the correct Model ID for Claude 3.5 Sonnet
-MODEL_ID = 'anthropic.claude-3-5-sonnet-20241022-v2:0' 
+MODEL_ID = 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' 
 
 # Setup Boto3 clients (Let Lambda inherit the region automatically)
 s3_client = boto3.client('s3')
@@ -50,7 +51,7 @@ def lambda_handler(event, context):
     # you might need to query S3 with a prefix to find the exact path.
     # Let's assume the EC2 was updated to just use the video_id for the folder path 
     # to make it easier for the Historian to find.
-    s3_key = f"transcripts/{video_id}/transcript.json" 
+    s3_key = f"transcripts/app-data/{date.today()}/{video_id}/transcript.json" 
     
     try:
         s3_response = s3_client.get_object(Bucket=BUCKET_NAME, Key=s3_key)

@@ -83,7 +83,7 @@ export class InfraStack extends cdk.Stack {
     
     // Allow EC2 to read the SSM Parameter created by Lambda
     soldierRole.addToPolicy(new iam.PolicyStatement({
-      actions: ['ssm:GetParameter'],
+      actions: ['ssm:PutParameter'],
       resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/meeting/*`],
     }));
 
@@ -199,7 +199,7 @@ shutdown -h now
       resources: ["*"]
     }))
     historian_lambda.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['ssm:GetParameter'],
+      actions: ['ssm:GetParameter', 'ssm:PutParameter'],
       resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/meeting/*`]
     }))
 
@@ -295,9 +295,20 @@ shutdown -h now
     //===============SCHEDULER===============
     // Run every 15 minutes
     new events.Rule(this, 'ScoutSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(15)),
+      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
       targets: [new targets.LambdaFunction(scout)],
     });
+
+    // new events.Rule(this, 'ScoutSchedule', {
+    //   schedule: events.Schedule.cron({
+    //     minute: '0/5',           // Every 5 minutes
+    //     hour: '19',              // At 19:00 hours (7:00 PM)
+    //     month: '*',              // Every month
+    //     weekDay: 'TUE#1,TUE#3',  // The 1st and 3rd Tuesday
+    //     year: '*'                // Every year
+    //   }),
+    //   targets: [new targets.LambdaFunction(scout)],
+    // });
 
     // Outputs
     new cdk.CfnOutput(this, 'BucketName', { value: bucket.bucketName });
