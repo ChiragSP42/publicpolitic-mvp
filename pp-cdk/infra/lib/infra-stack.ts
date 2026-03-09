@@ -27,15 +27,7 @@ export class InfraStack extends cdk.Stack {
     const bucket = s3.Bucket.fromBucketName(this, 'TranscriptBucket', process.env.BUCKET_NAME || "amplify-d2ciygvlo07lz3-ma-politicpublicdatabucket7-qvx2gkyomjkd");
 
     //===============DYNAMODB===============
-<<<<<<< HEAD
-    const table = new dynamodb.TableV2(this, 'MeetingsTable', {
-      tableName: 'CouncilMeetings',
-      partitionKey: {name: 'video_id', type: dynamodb.AttributeType.STRING},
-      removalPolicy: cdk.RemovalPolicy.DESTROY
-    })
-=======
     const table = dynamodb.TableV2.fromTableName(this, 'MeetingsTable', process.env.TABLE_NAME || 'Summary-hscxfuujejb67fqzkwmjigi3km-NONE')
->>>>>>> main
 
     //===============SECRETS MANAGER===============
     // Storing Proxy URL username and password
@@ -265,12 +257,8 @@ shutdown -h now
         YOUTUBE_API_KEY: process.env.YOUTUBE_API_KEY || '', // Ideally use Secrets Manager
         CHANNEL_ID: process.env.CHANNEL_ID || '',
         STATE_MACHINE_ARN: state_machine.stateMachineArn,
-<<<<<<< HEAD
-        TABLE_NAME: table.tableName
-=======
         TABLE_NAME: table.tableName,
         TAVILY_API_KEY: process.env.TAVILY_API_KEY || ''
->>>>>>> main
       },
     });
 
