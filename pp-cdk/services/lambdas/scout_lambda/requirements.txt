@@ -1,2 +1,7 @@
 google-api-python-client
 boto3
+beautifulsoup4
+fitz
+pymupdf
+playwright
+requests

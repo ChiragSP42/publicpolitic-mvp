@@ -3,6 +3,11 @@ import os
 import json
 from datetime import date
 from googleapiclient.discovery import build
+from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+import requests
+import fitz
 
 # --- CONFIG ---
 API_KEY = os.environ['YOUTUBE_API_KEY']
@@ -16,6 +21,62 @@ sfn = boto3.client('stepfunctions')
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(TABLE_NAME) #type: ignore
 youtube = build('youtube', 'v3', developerKey=API_KEY)
+
+def get_city_council_pdf_text(meeting_name, url):
+    # 1. Fetch the page using Playwright to render the JavaScript
+    print("Loading page and waiting for table to populate...")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url)
+        
+        # Wait for the table body to actually populate with rows
+        # We wait for at least one 'tr' to appear inside the tbody
+        page.wait_for_selector('#upcomingMeetingsTable tbody tr', timeout=10000)
+        
+        # Get the fully rendered HTML and close the browser
+        html_content = page.content()
+        browser.close()
+
+    # Now use BeautifulSoup on the fully rendered HTML
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # 2. Locate the specific table
+    container = soup.find('div', id='upcomingMeetingsContent')
+    table = None
+    if container:
+        table = container.find('table', id='upcomingMeetingsTable')
+    # body = table.find("tbody")
+    
+    pdf_url = None
+    
+    # 3. Find the "Planning Commission" row and extract the href
+    if table:
+        print("Parsing table rows...")
+        for row in table.find_all('tr'):
+            # Get all text in the row to see if our target phrase is inside
+            if meeting_name in row.get_text(): 
+                link_tag = row.find('a', href=True)
+                if link_tag:
+                    # urljoin intelligently combines the base url and the href 
+                    # regardless of if the href is relative (/Public/...) or absolute (https://...)
+                    pdf_url = urljoin(url, str(link_tag['href'])) 
+                    break
+
+    if not pdf_url:
+        return "Could not find the Planning Commission PDF link."
+
+    print(f"Found PDF URL: {pdf_url}\nDownloading and extracting text...")
+
+    # 4. Download and Read PDF
+    # (Since the PDF itself is a static file, we can still safely use 'requests' here)
+    pdf_response = requests.get(pdf_url)
+    with fitz.open(stream=pdf_response.content, filetype="pdf") as doc:
+        text = ""
+        for page in doc:
+            text += str(page.get_text())
+            
+    return text
 
 def lambda_handler(event, context):
     print("Scout waking up to check for live meetings...")
@@ -52,6 +113,10 @@ def lambda_handler(event, context):
         if response['Item'].get('status') == 'ACTIVE':
             print(f"Meeting {video_id} is already ACTIVE. Step Function is already managing this. Going back to sleep.")
             return {'status': 'already_running', 'video_id': video_id}
+        
+    # 2.1 Retrieving planned agenda from govt website
+    meeting_name = "Planning Commission"
+    agenda_text = get_city_council_pdf_text(meeting_name, "https://lasvegas.primegov.com/public/portal/")
 
     # 3. Store Video Info in SSM (For the EC2 Soldier to read when it boots)
     print("Updating SSM parameters for Soldier...")
@@ -73,9 +138,11 @@ def lambda_handler(event, context):
     table.put_item(
         Item={
             'video_id': video_id,
-            'status': 'ACTIVE',
+            'status': 'ACTIVE', # ACTIVE | INACTIVE | COMPLETED
             'start_time': str(date.today()),
             'last_checkpoint_index': 0,
+            'planned_agenda': agenda_text,
+            'live_agenda': "",
             'summary': ""
         }
     )

@@ -80,14 +80,19 @@ def lambda_handler(event, context):
     previous_summary = item.get("summary", "")
     new_summary = generate_summary(new_chunk, previous_summary)
 
+    planned_agenda = item.get("planned_agenda", "")
+    previous_live_agenda = item.get("live_agenda", "")
+    new_live_agenda = generate_agenda(planned_agenda, previous_live_agenda, new_summary)
+
     # 6. Update DynamoDB with the new Summary and Checkpoint
     try:
         table.update_item(
             Key={'video_id': video_id},
-            UpdateExpression='SET summary = :s, last_checkpoint_index = :i',
+            UpdateExpression='SET summary = :s, last_checkpoint_index = :i, live_agenda = :a',
             ExpressionAttributeValues={
                 ':s': new_summary,
-                ':i': current_length
+                ':i': current_length,
+                ':a': new_live_agenda
             }
         )
         print(f"✅ Successfully updated DB checkpoint to line {current_length}")
@@ -128,9 +133,9 @@ def generate_summary(transcript_chunk: List[Dict], previous_summary: str) -> str
     if previous_summary:
         llm_prompt = f"Here is the summary of the meeting so far:\n<previous_summary>\n{previous_summary}\n</previous_summary>\n\nHere is the newly transcribed audio from the last 15 minutes:\n<new_transcript>\n{transcript_text}\n</new_transcript>\n\nPlease integrate the new events into the existing summary to create one cohesive, updated document. Keep it concise and focus on motions, votes, and key arguments."
     else:
-        llm_prompt = f"The meeting has just started. Here is the first 15 minutes of transcription:\n<new_transcript>\n{transcript_text}\n</new_transcript>\n\nPlease generate a concise summary of these opening events."
+        llm_prompt = f"The meeting has just started. Here is the first transcription:\n<new_transcript>\n{transcript_text}\n</new_transcript>\n\nPlease generate a concise summary of these opening events."
 
-    print("Calling Bedrock (Claude 3.5 Sonnet)...")
+    print("Calling Bedrock (Claude 4.5 Sonnet)...")
     try:
         response = bedrock_runtime_client.converse(
             modelId=MODEL_ID,
@@ -142,3 +147,66 @@ def generate_summary(transcript_chunk: List[Dict], previous_summary: str) -> str
     except Exception as e:
         print(f"❌ Bedrock Error: {e}")
         return previous_summary # Fallback to the old summary if AI fails
+    
+def generate_agenda(planned_agenda: str, previous_live_agenda: str, new_summary: str) -> str:
+    """
+    Generates a live agenda tracker by cross-referencing:
+      - planned_agenda: official agenda scraped from govt website (stored in DynamoDB)
+      - previous_live_agenda: Historian's last agenda output (empty string on first run)
+      - new_summary: the freshly updated meeting summary from generate_summary()
+    """
+    system_prompt = (
+        "You are an expert secretary tracking a live city council meeting against its planned agenda. "
+        "Your task is to maintain a structured live agenda tracker that shows citizens exactly "
+        "where the meeting stands relative to the official published agenda."
+    )
+
+    if previous_live_agenda:
+        # Subsequent runs — update the existing tracker
+        llm_prompt = (
+            f"Below is the official planned agenda published by the council before the meeting:\n\n"
+            f"{planned_agenda}\n\n"
+            f"---\n\n"
+            f"Here is the live agenda tracker from your last update:\n\n"
+            f"{previous_live_agenda}\n\n"
+            f"---\n\n"
+            f"Here is the updated meeting summary reflecting the last 15 minutes of the meeting:\n\n"
+            f"{new_summary}\n\n"
+            f"---\n\n"
+            f"Please update the live agenda tracker. For each agenda item use one of these statuses:\n"
+            f"  ✅ COMPLETED — item was fully discussed and resolved\n"
+            f"  🔄 IN PROGRESS — item is currently being discussed\n"
+            f"  ⏳ UPCOMING — item has not been reached yet\n"
+            f"  ➕ UNPLANNED — item that came up but was not on the planned agenda\n\n"
+            f"Keep each item to one line with its status, title, and a brief note if relevant. "
+            f"Do not remove completed items — the tracker should be a full running record."
+        )
+    else:
+        # First run — bootstrap the tracker from the planned agenda
+        llm_prompt = (
+            f"Below is the official planned agenda published by the council before the meeting:\n\n"
+            f"{planned_agenda}\n\n"
+            f"---\n\n"
+            f"The meeting has just started. Here is the initial summary of what has happened so far:\n\n"
+            f"{new_summary}\n\n"
+            f"---\n\n"
+            f"Please create the initial live agenda tracker. For each agenda item use one of these statuses:\n"
+            f"  ✅ COMPLETED — item was fully discussed and resolved\n"
+            f"  🔄 IN PROGRESS — item is currently being discussed\n"
+            f"  ⏳ UPCOMING — item has not been reached yet\n"
+            f"  ➕ UNPLANNED — item that came up but was not on the planned agenda\n\n"
+            f"Keep each item to one line with its status, title, and a brief note if relevant."
+        )
+
+    print("🤖 Calling Bedrock for live agenda...")
+    try:
+        response = bedrock_runtime_client.converse(
+            modelId=MODEL_ID,
+            messages=[{'role': 'user', 'content': [{'text': llm_prompt}]}],
+            system=[{'text': system_prompt}],
+            inferenceConfig={'maxTokens': 2000}  # Agenda is shorter than a full summary
+        )
+        return response['output']['message']['content'][0]['text']
+    except Exception as e:
+        print(f"❌ Bedrock Error (agenda): {e}")
+        return previous_live_agenda  # Fallback — keep old agenda rather than lose data

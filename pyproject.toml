@@ -6,11 +6,15 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "amazon-transcribe>=0.6.4",
+    "beautifulsoup4>=4.14.3",
     "boto3>=1.42.29",
     "faster-whisper>=1.2.1",
     "ffmpeg>=1.4",
+    "fitz>=0.0.1.dev2",
     "google-api-python-client>=2.188.0",
     "numpy>=2.4.1",
+    "playwright>=1.58.0",
+    "pymupdf>=1.27.1",
     "python-dotenv>=1.2.1",
     "yt-dlp>=2025.12.8",
 ]
