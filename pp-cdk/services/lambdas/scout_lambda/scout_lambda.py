@@ -1,19 +1,19 @@
 import boto3
 import os
 import json
-from datetime import date
-from googleapiclient.discovery import build
-from playwright.sync_api import sync_playwright
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
 import requests
-import fitz
+import io
+import pypdf
+from datetime import date, datetime
+from googleapiclient.discovery import build
+from tavily import TavilyClient
 
 # --- CONFIG ---
 API_KEY = os.environ['YOUTUBE_API_KEY']
 CHANNEL_ID = os.environ['CHANNEL_ID']
 TABLE_NAME = os.environ['TABLE_NAME']
 STATE_MACHINE_ARN = os.environ['STATE_MACHINE_ARN']
+TAVILY_API_KEY = os.environ.get('TAVILY_API_KEY')
 
 # --- CLIENTS ---
 ssm = boto3.client('ssm')
@@ -22,61 +22,59 @@ dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(TABLE_NAME) #type: ignore
 youtube = build('youtube', 'v3', developerKey=API_KEY)
 
-def get_city_council_pdf_text(meeting_name, url):
-    # 1. Fetch the page using Playwright to render the JavaScript
-    print("Loading page and waiting for table to populate...")
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto(url)
+def get_city_council_agenda_tavily(meeting_name):
+    if not TAVILY_API_KEY:
+        print("⚠️ TAVILY_API_KEY is missing. Skipping agenda fetch.")
+        return "Agenda retrieval skipped (No Tavily Key)."
         
-        # Wait for the table body to actually populate with rows
-        # We wait for at least one 'tr' to appear inside the tbody
-        page.wait_for_selector('#upcomingMeetingsTable tbody tr', timeout=10000)
+    print(f"🤖 Asking Tavily to hunt down the agenda for: Las Vegas {meeting_name}")
+    
+    # Initialize the official Tavily client
+    tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
+    
+    try:
+        # 1. Ask Tavily to search for the PDF using the official SDK
+        response = tavily_client.search(
+            query=f"Las Vegas {meeting_name} current upcoming meeting agenda pdf",
+            search_depth="advanced",
+            include_raw_content=True
+        )
         
-        # Get the fully rendered HTML and close the browser
-        html_content = page.content()
-        browser.close()
-
-    # Now use BeautifulSoup on the fully rendered HTML
-    soup = BeautifulSoup(html_content, 'html.parser')
-    
-    # 2. Locate the specific table
-    container = soup.find('div', id='upcomingMeetingsContent')
-    table = None
-    if container:
-        table = container.find('table', id='upcomingMeetingsTable')
-    # body = table.find("tbody")
-    
-    pdf_url = None
-    
-    # 3. Find the "Planning Commission" row and extract the href
-    if table:
-        print("Parsing table rows...")
-        for row in table.find_all('tr'):
-            # Get all text in the row to see if our target phrase is inside
-            if meeting_name in row.get_text(): 
-                link_tag = row.find('a', href=True)
-                if link_tag:
-                    # urljoin intelligently combines the base url and the href 
-                    # regardless of if the href is relative (/Public/...) or absolute (https://...)
-                    pdf_url = urljoin(url, str(link_tag['href'])) 
-                    break
-
-    if not pdf_url:
-        return "Could not find the Planning Commission PDF link."
-
-    print(f"Found PDF URL: {pdf_url}\nDownloading and extracting text...")
-
-    # 4. Download and Read PDF
-    # (Since the PDF itself is a static file, we can still safely use 'requests' here)
-    pdf_response = requests.get(pdf_url)
-    with fitz.open(stream=pdf_response.content, filetype="pdf") as doc:
-        text = ""
-        for page in doc:
-            text += str(page.get_text())
+        results = response.get('results', [])
+        if not results:
+            return "Tavily could not find any agenda results."
             
-    return text
+        # Get the top result
+        best_result = results[0]
+        target_url = best_result.get('url', '')
+        print(f"🔗 Tavily found a top result: {target_url}")
+        
+        # 2. If it's a PDF, we download and read it manually using pure Python
+        if target_url.lower().endswith('.pdf'):
+            print("📄 Result is a PDF. Downloading and parsing...")
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            pdf_response = requests.get(target_url, headers=headers)
+            pdf_response.raise_for_status()
+            
+            pdf_file = io.BytesIO(pdf_response.content)
+            reader = pypdf.PdfReader(pdf_file)
+            
+            text = ""
+            for page in reader.pages:
+                extracted = page.extract_text()
+                if extracted:
+                    text += extracted + "\n"
+            return text
+            
+        # 3. If it's a webpage, we just use Tavily's pre-extracted text
+        else:
+            print("🌐 Result is a webpage. Using Tavily's extracted text...")
+            # Fallback to the snippet if raw_content isn't available
+            return best_result.get('raw_content', best_result.get('content', 'No content extracted.'))
+            
+    except Exception as e:
+        print(f"❌ Tavily search failed: {e}")
+        return "Error extracting agenda via Tavily."
 
 def lambda_handler(event, context):
     print("Scout waking up to check for live meetings...")
@@ -107,58 +105,46 @@ def lambda_handler(event, context):
     print(f"Found Live Video: {title} ({video_id})")
 
     # 2. IDEMPOTENCY CHECK (Prevent overlapping workflows)
-    # Check if we already know about this meeting and if it's currently running.
     response = table.get_item(Key={'video_id': video_id})
     if 'Item' in response:
         if response['Item'].get('status') == 'ACTIVE':
             print(f"Meeting {video_id} is already ACTIVE. Step Function is already managing this. Going back to sleep.")
             return {'status': 'already_running', 'video_id': video_id}
         
-    # 2.1 Retrieving planned agenda from govt website
+    # 3. Retrieve planned agenda using Tavily
     meeting_name = "Planning Commission"
-    agenda_text = get_city_council_pdf_text(meeting_name, "https://lasvegas.primegov.com/public/portal/")
+    agenda_text = get_city_council_agenda_tavily(meeting_name)
 
-    # 3. Store Video Info in SSM (For the EC2 Soldier to read when it boots)
+    # 4. Store Video Info in SSM (For the EC2 Soldier to read when it boots)
     print("Updating SSM parameters for Soldier...")
-    ssm.put_parameter(
-        Name='/meeting/current_video_id',
-        Value=video_id,
-        Type='String',
-        Overwrite=True
-    )
-    ssm.put_parameter(
-        Name='/meeting/current_title',
-        Value=title,
-        Type='String',
-        Overwrite=True
-    )
+    ssm.put_parameter(Name='/meeting/current_video_id', Value=video_id, Type='String', Overwrite=True)
+    ssm.put_parameter(Name='/meeting/current_title', Value=title, Type='String', Overwrite=True)
 
-    # 4. Create the DB Record
+    # 5. Create the DB Record
     print(f"Creating new DB Record for {video_id}")
     table.put_item(
         Item={
-            'video_id': video_id,
-            'status': 'ACTIVE', # ACTIVE | INACTIVE | COMPLETED
-            'start_time': str(date.today()),
-            'last_checkpoint_index': 0,
-            'planned_agenda': agenda_text,
-            'live_agenda': "",
+            'videoId': video_id,
+            'createdAt': datetime.now().replace(tzinfo=None).isoformat(timespec="milliseconds") + "Z",
+            'updatedAt': '',
+            'date': datetime.now().replace(tzinfo=None).isoformat(timespec="milliseconds") + "Z",
+            'status': 'ACTIVE', 
+            'startTime': str(date.today()),
+            'lastCheckpointIndex': 0,
+            'plannedAgenda': agenda_text,
+            'liveAgenda': "",
             'summary': ""
         }
     )
 
-    # 5. WAKE UP THE CONDUCTOR (Start the Step Function)
+    # 6. WAKE UP THE CONDUCTOR (Start the Step Function)
     print(f"Triggering Step Function Orchestrator for {video_id}...")
-    
-    # We pass the video_id and initial active state into the Step Function payload
     sfn_input = {
         "video_id": video_id,
         "meeting_active": True
     }
-    
     sfn.start_execution(
         stateMachineArn=STATE_MACHINE_ARN,
-        # Name is auto-generated by AWS to avoid naming collisions
         input=json.dumps(sfn_input)
     )
     

@@ -1,7 +1,7 @@
 import boto3
 import os
 import json
-from datetime import date
+from datetime import date, datetime
 from typing import List, Dict
 
 # --- CONFIG ---
@@ -88,11 +88,12 @@ def lambda_handler(event, context):
     try:
         table.update_item(
             Key={'video_id': video_id},
-            UpdateExpression='SET summary = :s, last_checkpoint_index = :i, live_agenda = :a',
+            UpdateExpression='SET summary = :s, lastCheckpointIndex = :i, liveAgenda = :a, updatedAt = :u',
             ExpressionAttributeValues={
                 ':s': new_summary,
                 ':i': current_length,
-                ':a': new_live_agenda
+                ':a': new_live_agenda,
+                ':u': datetime.now().replace(tzinfo=None).isoformat(timespec="milliseconds") + "Z"
             }
         )
         print(f"✅ Successfully updated DB checkpoint to line {current_length}")

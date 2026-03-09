@@ -15,6 +15,8 @@ dependencies = [
     "numpy>=2.4.1",
     "playwright>=1.58.0",
     "pymupdf>=1.27.1",
+    "pypdf>=6.8.0",
     "python-dotenv>=1.2.1",
+    "tavily-python>=0.7.22",
     "yt-dlp>=2025.12.8",
 ]
