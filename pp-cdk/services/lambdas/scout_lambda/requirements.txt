@@ -1,13 +1,5 @@
 google-api-python-client
 boto3
-<<<<<<< HEAD
-beautifulsoup4
-fitz
-pymupdf
-playwright
-requests
-=======
 requests
 pypdf
 tavily-python
->>>>>>> main

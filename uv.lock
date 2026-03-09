@@ -891,13 +891,9 @@ dependencies = [
     { name = "numpy" },
     { name = "playwright" },
     { name = "pymupdf" },
-<<<<<<< HEAD
-    { name = "python-dotenv" },
-=======
     { name = "pypdf" },
     { name = "python-dotenv" },
     { name = "tavily-python" },
->>>>>>> main
     { name = "yt-dlp" },
 ]
 
@@ -913,13 +909,9 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.4.1" },
     { name = "playwright", specifier = ">=1.58.0" },
     { name = "pymupdf", specifier = ">=1.27.1" },
-<<<<<<< HEAD
-    { name = "python-dotenv", specifier = ">=1.2.1" },
-=======
     { name = "pypdf", specifier = ">=6.8.0" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "tavily-python", specifier = ">=0.7.22" },
->>>>>>> main
     { name = "yt-dlp", specifier = ">=2025.12.8" },
 ]
 
@@ -1043,8 +1035,6 @@ wheels = [
 ]
 
 [[package]]
-<<<<<<< HEAD
-=======
 name = "pypdf"
 version = "6.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1054,7 +1044,6 @@ wheels = [
 ]
 
 [[package]]
->>>>>>> main
 name = "pyreadline3"
 version = "3.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1147,8 +1136,6 @@ wheels = [
 ]
 
 [[package]]
-<<<<<<< HEAD
-=======
 name = "regex"
 version = "2026.2.28"
 source = { registry = "https://pypi.org/simple" }
@@ -1221,7 +1208,6 @@ wheels = [
 ]
 
 [[package]]
->>>>>>> main
 name = "requests"
 version = "2.32.5"
 source = { registry = "https://pypi.org/simple" }
@@ -1382,8 +1368,6 @@ wheels = [
 ]
 
 [[package]]
-<<<<<<< HEAD
-=======
 name = "tavily-python"
 version = "0.7.22"
 source = { registry = "https://pypi.org/simple" }
@@ -1438,7 +1422,6 @@ wheels = [
 ]
 
 [[package]]
->>>>>>> main
 name = "tokenizers"
 version = "0.22.2"
 source = { registry = "https://pypi.org/simple" }
