@@ -2,10 +2,3 @@ boto3
 yt-dlp
 ffmpeg
 google-api-python-client
-python-dotenv
-numpy
-faster-whisper
-beautifulsoup4
-fitz
-pymupdf
-playwright

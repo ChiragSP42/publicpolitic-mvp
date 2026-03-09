@@ -11,4 +11,9 @@ wheels/
 
 # Ignore files
 *.json
+<<<<<<< HEAD
 .env
+=======
+.env
+*.csv
+>>>>>>> main
