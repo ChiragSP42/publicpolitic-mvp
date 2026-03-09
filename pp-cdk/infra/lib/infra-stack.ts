@@ -24,11 +24,7 @@ export class InfraStack extends cdk.Stack {
 
     //===============DATA BUCKET===============
     // Where transcripts go. Also used to transfer the script to EC2.
-    const bucket = new s3.Bucket(this, 'TranscriptBucket', {
-      bucketName: 'publicpolitic',
-      removalPolicy: cdk.RemovalPolicy.DESTROY, // For testing only
-      autoDeleteObjects: true,
-    });
+    const bucket = s3.Bucket.fromBucketName(this, 'TranscriptBucket', process.env.BUCKET_NAME || "amplify-d2ciygvlo07lz3-ma-politicpublicdatabucket7-qvx2gkyomjkd");
 
     //===============DYNAMODB===============
     const table = new dynamodb.TableV2(this, 'MeetingsTable', {
@@ -295,16 +291,16 @@ shutdown -h now
     //===============SCHEDULER===============
     // Run every 15 minutes
     new events.Rule(this, 'ScoutSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
+      schedule: events.Schedule.rate(cdk.Duration.hours(6)),
       targets: [new targets.LambdaFunction(scout)],
     });
 
     // new events.Rule(this, 'ScoutSchedule', {
     //   schedule: events.Schedule.cron({
     //     minute: '0/5',           // Every 5 minutes
-    //     hour: '19',              // At 19:00 hours (7:00 PM)
+    //     hour: '9',              // At 19:00 hours (7:00 PM)
     //     month: '*',              // Every month
-    //     weekDay: 'TUE#1,TUE#3',  // The 1st and 3rd Tuesday
+    //     weekDay: 'WED#1,WED#3',  // The 1st and 3rd Tuesday
     //     year: '*'                // Every year
     //   }),
     //   targets: [new targets.LambdaFunction(scout)],
