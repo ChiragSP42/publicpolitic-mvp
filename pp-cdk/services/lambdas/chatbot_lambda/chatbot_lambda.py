@@ -3,13 +3,13 @@ import os
 import json
 
 # Environment variables
-BUCKET_NAME = os.getenv("BUCKET_NAME", "publicpolitic")
+BUCKET_NAME = os.getenv("BUCKET_NAME")
 MODEL_ARN = 'arn:aws:bedrock:us-west-2:674171865978:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 KNOWLEDGE_BASE_ID = os.getenv("KNOWLEDGE_BASE_ID")
 
 # Define boto3 clients
 s3_client = boto3.client("s3")
-bedrock_agent_runtime_client = boto3.client("bedrock-agent-runtime")
+bedrock_agent_runtime_client = boto3.client("bedrock-agent-runtime", region_name='us-west-2')
 
 def lambda_handler(event, context):
     """The payload is of the following format:

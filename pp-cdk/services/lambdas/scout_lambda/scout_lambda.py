@@ -12,7 +12,7 @@ from tavily import TavilyClient
 API_KEY = os.environ['YOUTUBE_API_KEY']
 CHANNEL_ID = os.environ['CHANNEL_ID']
 TABLE_NAME = os.environ['TABLE_NAME']
-STATE_MACHINE_ARN = os.environ['STATE_MACHINE_ARN']
+STATE_MACHINE_ARN = os.getenv('STATE_MACHINE_ARN', "dfg")
 TAVILY_API_KEY = os.environ.get('TAVILY_API_KEY')
 
 # --- CLIENTS ---
@@ -34,9 +34,14 @@ def get_city_council_agenda_tavily(meeting_name):
     
     try:
         # 1. Ask Tavily to search for the PDF using the official SDK
-        response = tavily_client.search(
-            query=f"Las Vegas {meeting_name} current upcoming meeting agenda pdf",
-            search_depth="advanced",
+        response = tavily_client.crawl(
+            url="https://lasvegas.primegov.com/public/portal/",
+            instructions=f"Get only the meeting agenda from the upcoming and current Las Vegas City Council meeting as a downloadable pdf",
+            limit=100,
+            max_depth=5,
+            max_breadth=2,
+            extract_depth="advanced",
+            allow_external=False,
             include_raw_content=True
         )
         
@@ -78,11 +83,13 @@ def get_city_council_agenda_tavily(meeting_name):
 
 def lambda_handler(event, context):
     print("Scout waking up to check for live meetings...")
+    print(f"Table name: {TABLE_NAME}")
     
     # 1. Search for LIVE Council Meetings on the channel
     try:
         search_response = youtube.search().list(
             part='id,snippet',
+            q='Council Meeting',
             channelId=CHANNEL_ID,
             eventType='live',  
             type='video',
@@ -105,7 +112,7 @@ def lambda_handler(event, context):
     print(f"Found Live Video: {title} ({video_id})")
 
     # 2. IDEMPOTENCY CHECK (Prevent overlapping workflows)
-    response = table.get_item(Key={'video_id': video_id})
+    response = table.get_item(Key={'id': video_id})
     if 'Item' in response:
         if response['Item'].get('status') == 'ACTIVE':
             print(f"Meeting {video_id} is already ACTIVE. Step Function is already managing this. Going back to sleep.")
@@ -113,7 +120,7 @@ def lambda_handler(event, context):
         
     # 3. Retrieve planned agenda using Tavily
     meeting_name = "Planning Commission"
-    agenda_text = get_city_council_agenda_tavily(meeting_name)
+    # agenda_text = get_city_council_agenda_tavily(meeting_name)
 
     # 4. Store Video Info in SSM (For the EC2 Soldier to read when it boots)
     print("Updating SSM parameters for Soldier...")
@@ -124,6 +131,7 @@ def lambda_handler(event, context):
     print(f"Creating new DB Record for {video_id}")
     table.put_item(
         Item={
+            'id': video_id,
             'videoId': video_id,
             'createdAt': datetime.now().replace(tzinfo=None).isoformat(timespec="milliseconds") + "Z",
             'updatedAt': '',
@@ -131,7 +139,7 @@ def lambda_handler(event, context):
             'status': 'ACTIVE', 
             'startTime': str(date.today()),
             'lastCheckpointIndex': 0,
-            'plannedAgenda': agenda_text,
+            'plannedAgenda': "",
             'liveAgenda': "",
             'summary': ""
         }
@@ -149,3 +157,6 @@ def lambda_handler(event, context):
     )
     
     return {'status': 'started', 'video_id': video_id, 'title': title}
+
+if __name__ == "__main__":
+    lambda_handler(event={}, context=None)

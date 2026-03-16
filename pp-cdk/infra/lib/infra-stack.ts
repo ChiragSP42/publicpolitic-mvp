@@ -208,7 +208,7 @@ shutdown -h now
 
     // Task 2: Wait N minutes before summarization
     const task_2_wait = new sfn.Wait(this, 'Wait', {
-      time: sfn.WaitTime.duration(cdk.Duration.minutes(4))
+      time: sfn.WaitTime.duration(cdk.Duration.minutes(15))
     })
 
     // Task 3: Trigger summarization lambda
@@ -282,26 +282,91 @@ shutdown -h now
       actions: ['ssm:PutParameter'],
       resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/meeting/*`],
     }));
+    chatbot_lambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:GetInferenceProfile', "bedrock:InvokeModel"],
+      resources: [
+        `arn:aws:bedrock:${this.region}:${this.account}:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0`,
+        `arn:aws:bedrock:*::foundation-model/*`
+      ],
+    }));
+    chatbot_lambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:RetrieveAndGenerate', "bedrock:Retrieve"],
+      resources: [`arn:aws:bedrock:${this.region}:${this.account}:knowledge-base/${process.env.KNOWLEDGE_BASE_ID || ""}`],
+    }));
     table.grantReadWriteData(scout)
     state_machine.grantStartExecution(scout)
 
     //===============SCHEDULER===============
     // Run every 15 minutes
-    new events.Rule(this, 'ScoutSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.hours(6)),
-      targets: [new targets.LambdaFunction(scout)],
-    });
-
     // new events.Rule(this, 'ScoutSchedule', {
-    //   schedule: events.Schedule.cron({
-    //     minute: '0/5',           // Every 5 minutes
-    //     hour: '9',              // At 19:00 hours (7:00 PM)
-    //     month: '*',              // Every month
-    //     weekDay: 'WED#1,WED#3',  // The 1st and 3rd Tuesday
-    //     year: '*'                // Every year
-    //   }),
+    //   schedule: events.Schedule.rate(cdk.Duration.hours(6)),
     //   targets: [new targets.LambdaFunction(scout)],
     // });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+// ⚠️  IMPORTANT: EventBridge cron is always in UTC.
+//     Las Vegas is Pacific Time:
+//       PST (Nov–Mar): UTC-8  →  8am–10am PT = 16:00–18:00 UTC
+//       PDT (Mar–Nov): UTC-7  →  8am–10am PT = 15:00–17:00 UTC
+//
+//     The hours below use PDT (15,16 UTC) since council meetings run
+//     Mar–Nov. Adjust to 16,17 UTC if meetings run during PST months.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Shared Lambda target — defined once, reused across all 4 rules
+const scoutTarget = [new targets.LambdaFunction(scout)];
+
+// ── BLOCK 1: 8:00 AM → 9:55 AM, every 5 min, 1st Wednesday ──────────────────
+new events.Rule(this, 'ScoutFirstWed_8to9', {
+  description: 'Scout: every 5min, 8:00am–9:55am PT, 1st Wednesday of the month',
+  schedule: events.Schedule.cron({
+    minute  : '0/5',  // :00, :05, :10 ... :55
+    hour    : '15,16', // 8am and 9am PT (PDT = UTC-7)
+    month   : '*',
+    weekDay : 'WED#1',
+    year    : '*',
+  }),
+  targets: scoutTarget,
+});
+
+// ── BLOCK 2: 8:00 AM → 9:55 AM, every 5 min, 3rd Wednesday ──────────────────
+new events.Rule(this, 'ScoutThirdWed_8to9', {
+  description: 'Scout: every 5min, 8:00am–9:55am PT, 3rd Wednesday of the month',
+  schedule: events.Schedule.cron({
+    minute  : '0/5',
+    hour    : '15,16', // 8am and 9am PT (PDT = UTC-7)
+    month   : '*',
+    weekDay : 'WED#3',
+    year    : '*',
+  }),
+  targets: scoutTarget,
+});
+
+// ── BLOCK 3: 10:00 AM sharp, 1st Wednesday ───────────────────────────────────
+new events.Rule(this, 'ScoutFirstWed_10am', {
+  description: 'Scout: 10:00am PT sharp, 1st Wednesday of the month',
+  schedule: events.Schedule.cron({
+    minute  : '0',
+    hour    : '17',   // 10am PT (PDT = UTC-7)
+    month   : '*',
+    weekDay : 'WED#1',
+    year    : '*',
+  }),
+  targets: scoutTarget,
+});
+
+// ── BLOCK 4: 10:00 AM sharp, 3rd Wednesday ───────────────────────────────────
+new events.Rule(this, 'ScoutThirdWed_10am', {
+  description: 'Scout: 10:00am PT sharp, 3rd Wednesday of the month',
+  schedule: events.Schedule.cron({
+    minute  : '0',
+    hour    : '17',   // 10am PT (PDT = UTC-7)
+    month   : '*',
+    weekDay : 'WED#3',
+    year    : '*',
+  }),
+  targets: scoutTarget,
+});
 
     // Outputs
     new cdk.CfnOutput(this, 'BucketName', { value: bucket.bucketName });

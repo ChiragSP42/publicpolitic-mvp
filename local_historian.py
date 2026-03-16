@@ -44,7 +44,7 @@ def lambda_handler(event, context):
 
     # Retrieve record for video ID from DynamoDB
     print("Retrieve record for video ID from DynamoDB")
-    response = table.get_item(Key={'video_id': video_id})
+    response = table.get_item(Key={'id': video_id})
 
     if 'Item' not in response:
         print(f"Failed to retrieve video ID from DynamoDB")
@@ -96,7 +96,7 @@ def lambda_handler(event, context):
 
         try:
             table.update_item(
-                Key={'video_id': video_id},
+                Key={'id': video_id},
                 UpdateExpression='SET summary = :s, last_checkpoint_index = :i',
                 ExpressionAttributeValues={
                     ':s': new_summary,
@@ -113,7 +113,7 @@ def lambda_handler(event, context):
         
     elif item.get("status") == 'COMPLETED':
         table.update_item(
-            Key={"video_id": video_id},
+            Key={"id": video_id},
             UpdateExpression='SET #s = :inactive',
             ExpressionAttributeNames={'#s': 'status'},
             ExpressionAttributeValues={':inactive': 'INACTIVE'}
@@ -123,7 +123,7 @@ def summarization(transcript_chunk: List[Dict],
                   video_id: str):
     # Retrieve latest summary from DB
     response = table.get_item(
-        Key={'video_id': video_id},
+        Key={'id': video_id},
         ProjectionExpression='summary'
     )
     if 'Item' not in response:

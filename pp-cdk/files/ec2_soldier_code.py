@@ -12,7 +12,7 @@ from faster_whisper import WhisperModel
 # --- CONFIGURATION ---
 REGION = os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
 BUCKET_NAME = os.environ.get('BUCKET_NAME') 
-TABLE_NAME = "CouncilMeetings" # Set in your CDK
+TABLE_NAME = os.environ.get('TABLE_NAME') # Set in your CDK
 
 MODEL_SIZE = "small" 
 
@@ -206,7 +206,7 @@ def run_soldier():
             print("🚦 Stream finished. Setting DynamoDB status to COMPLETED.")
             try:
                 table.update_item(
-                    Key={'video_id': video_id},
+                    Key={'id': video_id},
                     UpdateExpression="SET #s = :completed",
                     ExpressionAttributeNames={'#s': 'status'},
                     ExpressionAttributeValues={':completed': 'COMPLETED'}

@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import List, Dict
 
 # --- CONFIG ---
-TABLE_NAME = os.environ.get("TABLE_NAME", "CouncilMeetings")
+TABLE_NAME = os.environ.get("TABLE_NAME")
 BUCKET_NAME = os.environ.get("BUCKET_NAME")
 
 # Using the correct Model ID for Claude 3.5 Sonnet
@@ -29,7 +29,7 @@ def lambda_handler(event, context):
         return {"video_id": None, "meeting_active": False}
 
     # 2. Retrieve DB Record
-    response = table.get_item(Key={'video_id': video_id})
+    response = table.get_item(Key={'id': video_id})
     if 'Item' not in response:
         print(f"❌ Error: Record for {video_id} not found in DB.")
         return {"video_id": video_id, "meeting_active": False}
@@ -80,14 +80,14 @@ def lambda_handler(event, context):
     previous_summary = item.get("summary", "")
     new_summary = generate_summary(new_chunk, previous_summary)
 
-    planned_agenda = item.get("planned_agenda", "")
-    previous_live_agenda = item.get("live_agenda", "")
+    planned_agenda = item.get("plannedAgenda", "")
+    previous_live_agenda = item.get("liveAgenda", "")
     new_live_agenda = generate_agenda(planned_agenda, previous_live_agenda, new_summary)
 
     # 6. Update DynamoDB with the new Summary and Checkpoint
     try:
         table.update_item(
-            Key={'video_id': video_id},
+            Key={'id': video_id},
             UpdateExpression='SET summary = :s, lastCheckpointIndex = :i, liveAgenda = :a, updatedAt = :u',
             ExpressionAttributeValues={
                 ':s': new_summary,
@@ -112,7 +112,7 @@ def finalize_meeting(video_id):
     print("🟡 Stream is COMPLETED. Doing final cleanup.")
     try:
         table.update_item(
-            Key={"video_id": video_id},
+            Key={"id": video_id},
             UpdateExpression='SET #s = :inactive',
             ExpressionAttributeNames={'#s': 'status'},
             ExpressionAttributeValues={':inactive': 'INACTIVE'}

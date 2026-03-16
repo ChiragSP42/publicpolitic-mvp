@@ -13,3 +13,5 @@ wheels/
 *.json
 .env
 *.csv
+backfill_transcripts.py
+.DS_Store
